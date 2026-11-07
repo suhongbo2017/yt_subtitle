@@ -1,0 +1,41 @@
+{
+  "models": [
+    {
+      "id": "qwen",
+      "label": "Qwen3-VL-Plus",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen3-vl-plus",
+      "key_env": "DASHSCOPE_API_KEY",
+      "proxy": false,
+      "note": "阿里云百炼，国内直连，性价比高"
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini 2.5 Flash",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "model": "gemini-2.5-flash",
+      "key_env": "GEMINI_API_KEY",
+      "proxy": true,
+      "note": "手写识别最强；免费额度 20 次/天"
+    },
+    {
+      "id": "openai",
+      "label": "GPT-4.1 mini",
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4.1-mini",
+      "key_env": "OPENAI_API_KEY",
+      "proxy": true,
+      "note": "需要代理"
+    },
+    {
+      "id": "glm",
+      "label": "GLM-4.5V",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "model": "glm-4.5v",
+      "key_env": "ZHIPU_API_KEY",
+      "proxy": false,
+      "note": "智谱，国内直连"
+    }
+  ],
+  "default": "qwen"
+}
