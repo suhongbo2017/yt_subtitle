@@ -48,6 +48,8 @@ export default function App() {
   const [svc, setSvc] = useState<{ online: boolean; model?: string }>({ online: false });
   const [svcBusy, setSvcBusy] = useState(false);
   const [svcMsg, setSvcMsg] = useState('');
+  const [screenBusy, setScreenBusy] = useState(false);
+  const [screenMsg, setScreenMsg] = useState('');
 
   // 本地 ASR 服务：走 Native Messaging 启动/停止（扩展自己不能起进程）
   const toggleService = async (start: boolean) => {
@@ -99,6 +101,34 @@ export default function App() {
           ? '页面里没有注入脚本：扩展刚更新过，请刷新视频页面后重试'
           : msg,
       );
+    }
+  };
+
+  // 截图翻译：截当前页面 → 本地视觉模型 → 结果页
+  const doScreen = async () => {
+    setScreenBusy(true);
+    setScreenMsg('截图中…');
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      const image = (await browser.tabs.captureVisibleTab(tab!.windowId!, { format: 'png' })) as string;
+      setScreenMsg('翻译中（约 10 秒）…');
+      const res = (await browser.runtime.sendMessage({
+        type: 'ytsub:screen',
+        image,
+        target: settings.targetLang,
+      })) as {
+        ok: boolean;
+        blocks?: { bbox: number[]; original: string; translation: string }[];
+        error?: string;
+      }; 
+      if (!res?.ok) throw new Error(res?.error ?? '翻译失败');
+      await browser.storage.session.set({ screen: { image, blocks: res.blocks } });
+      await browser.tabs.create({ url: '/screen.html' });
+      setScreenMsg('');
+      window.close();
+    } catch (err) {
+      setScreenBusy(false);
+      setScreenMsg(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -313,6 +343,18 @@ export default function App() {
           </button>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={() => void doScreen()}
+        disabled={screenBusy}
+        className="w-full rounded-lg bg-sky-600 py-2 text-xs font-medium text-white transition hover:bg-sky-500 disabled:opacity-60"
+      >
+        {screenBusy ? screenMsg || '翻译中…' : '📝 截图翻译（当前页面）'}
+      </button>
+      {!screenBusy && screenMsg && (
+        <p className="mb-1 text-center text-[10px] leading-relaxed text-rose-400">{screenMsg}</p>
+      )}
 
       <button
         type="button"

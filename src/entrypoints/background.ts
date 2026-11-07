@@ -51,6 +51,8 @@ interface AsrStatusMessage {
   detail?: string;
 }
 
+interface ScreenRegion { x: number; y: number; w: number; h: number; dpr: number }
+
 interface GetStateMessage {
   type: 'ytsub:getState';
 }
@@ -67,7 +69,119 @@ type IncomingMessage =
   | { type: 'ytsub:subs-request'; tabId?: number; videoId?: string; url?: string }
   | { type: 'ytsub:subs-poll'; jobId?: string }
   | { type: 'ytsub:service'; cmd: 'start' | 'stop' | 'status' }
-  | { type: 'ytsub:screen'; image: string; target?: string };
+  | { type: 'ytsub:screen'; region?: { x: number; y: number; w: number; h: number; dpr: number } };
+
+/**
+ * 注入页面里的选框 UI：拖拽划出矩形，Esc 取消，返回设备像素坐标。
+ * 必须是可序列化的自包含函数（chrome.scripting.executeScript 的 func）。
+ */
+function selectRegionOnPage(): Promise<ScreenRegion | { cancel: true }> {
+  return new Promise((resolve) => {
+    const dpr = window.devicePixelRatio || 1;
+    const finish = (result: ScreenRegion | { cancel: true }) => {
+      overlay.remove();
+      window.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    };
+
+    const overlay = document.createElement('div');
+    overlay.id = '__ytsubSelect__';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:2147483647', 'cursor:crosshair',
+      'background:rgba(0,0,0,.28)', 'user-select:none',
+    ].join(';');
+    overlay.innerHTML = `
+      <div style="position:fixed;top:12px;left:50%;transform:translateX(-50%);
+        display:flex;gap:10px;align-items:center;background:rgba(15,17,20,.94);
+        border:1px solid #2f333c;border-radius:8px;padding:8px 14px;
+        font:12px -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#dfe3ea;z-index:2">
+        <span>拖动选择要翻译的区域</span>
+        <button data-a="full" style="all:unset;cursor:pointer;background:#1c7a57;color:#fff;
+          border-radius:5px;padding:3px 10px">整页</button>
+        <button data-a="cancel" style="all:unset;cursor:pointer;background:#33363e;color:#aab;
+          border-radius:5px;padding:3px 10px">取消</button>
+      </div>`;
+    document.documentElement.appendChild(overlay);
+
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;border:2px solid #31d68f;background:rgba(49,214,143,.12);display:none;z-index:1';
+    overlay.appendChild(box);
+    const label = document.createElement('div');
+    label.style.cssText = 'position:fixed;display:none;background:#1c7a57;color:#fff;font:11px sans-serif;padding:2px 6px;border-radius:4px;z-index:2';
+    overlay.appendChild(label);
+
+    let sx = 0, sy = 0, active = false;
+    const pos = (e: MouseEvent) => ({ x: e.clientX, y: e.clientY });
+
+    const onMove = (e: MouseEvent) => {
+      if (!active) return;
+      const { x, y } = pos(e);
+      const l = Math.min(x, sx), t = Math.min(y, sy);
+      const w = Math.abs(x - sx), h = Math.abs(y - sy);
+      box.style.display = 'block';
+      box.style.left = `${l}px`;
+      box.style.top = `${t}px`;
+      box.style.width = `${w}px`;
+      box.style.height = `${h}px`;
+      label.style.display = 'block';
+      label.style.left = `${l}px`;
+      label.style.top = `${Math.max(0, t - 22)}px`;
+      label.textContent = `${Math.round(w)} × ${Math.round(h)}（设备像素 ${Math.round(w * dpr)}）`;
+    };
+    const onDown = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).dataset?.a) return;
+      active = true;
+      const { x, y } = pos(e);
+      sx = x; sy = y;
+      overlay.style.background = 'transparent';
+    };
+    const onUp = (e: MouseEvent) => {
+      if (!active) return;
+      active = false;
+      const { x, y } = pos(e);
+      const w = Math.abs(x - sx), h = Math.abs(y - sy);
+      if (w < 12 || h < 12) return; // 太小当误触
+      finish({ x: Math.min(x, sx), y: Math.min(y, sy), w, h, dpr } as ScreenRegion);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') finish({ cancel: true });
+    };
+    overlay.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp, { once: true });
+    window.addEventListener('keydown', onKey, true);
+    overlay.querySelectorAll('button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.a === 'full') finish({ x: 0, y: 0, w: window.innerWidth, h: window.innerHeight, dpr } as ScreenRegion);
+        else finish({ cancel: true });
+      });
+    });
+  });
+}
+
+
+/** 截图流程的错误：此时弹窗已关闭，用系统通知反馈 */
+function notifyScreenError(message: string) {
+  void browser.notifications
+    .create({
+      type: 'basic',
+      iconUrl: 'icon/128.png',
+      title: '截图翻译',
+      message: message.slice(0, 400),
+    })
+    .catch(() => undefined);
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const buf = await blob.arrayBuffer();
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return 'data:image/png;base64,' + btoa(bin);
+}
 
 /** 每个标签页的最新自检状态，供 popup 展示 */
 const tabStates = new Map<number, PageState>();
@@ -381,26 +495,61 @@ export default defineBackground(() => {
     }
 
     if (msg?.type === 'ytsub:screen') {
-      const screenMsg = msg as { image: string; target?: string };
+      // 流程：注入选框 → 用户拖拽 → 截全页 → 按设备像素裁剪 → 视觉模型 → 结果页
       void (async () => {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id == null) throw new Error('找不到当前标签页');
+
+        // 1) 注入选框 UI（必须先取窗口句柄再裁剪，中间别关弹窗——弹窗早自动关了）
+        const injected = await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: selectRegionOnPage,
+        }).then((r) => r[0]?.result) as ScreenRegion | { cancel: true } | undefined;
+
+        if (!injected || 'cancel' in injected) return { ok: false, error: '已取消' };
+
+        // 2) 截全页（此时选框已移除，不会拍进图里）
+        const fullShot = (await browser.tabs.captureVisibleTab(tab.windowId, {
+          format: 'png',
+        })) as string;
+
+        // 3) 按设备像素裁剪（OffscreenCanvas 在 SW 里可用）
+        const { x, y, w, h, dpr } = injected;
+        const bmp = await (await fetch(fullShot)).blob().then((b) => createImageBitmap(b));
+        const cw = Math.round(w * dpr), ch = Math.round(h * dpr);
+        const cx = Math.round(x * dpr), cy = Math.round(y * dpr);
+        const clampedW = Math.min(cw, bmp.width - cx), clampedH = Math.min(ch, bmp.height - cy);
+        const canvas = new OffscreenCanvas(clampedW, clampedH);
+        canvas.getContext('2d')!.drawImage(bmp, cx, cy, clampedW, clampedH, 0, 0, clampedW, clampedH);
+        const cropped = await canvas.convertToBlob({ type: 'image/png' });
+
+        // 4) 送本地视觉模型
         const settings = await loadSettings();
-        const base = 'http://127.0.0.1:8765';
-        const res = await fetch(`${base}/api/screen`, {
+        const res = await fetch('http://127.0.0.1:8765/api/screen', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: screenMsg.image, target: screenMsg.target ?? settings.targetLang }),
+          body: JSON.stringify({
+            image: await blobToDataUrl(cropped),
+            target: settings.targetLang,
+          }),
         });
-        const data = await res.json();
-        sendResponse(data.ok ? { ok: true, blocks: data.blocks } : { ok: false, error: data.error });
-      })().catch((err: unknown) =>
-        sendResponse({
-          ok: false,
-          error:
-            err instanceof Error
-              ? `连接本地服务失败（需先运行 start-ui.cmd）：${err.message}`
-              : String(err),
-        }),
-      );
+        const data = (await res.json()) as { ok: boolean; blocks?: unknown[]; error?: string };
+        if (!data.ok) throw new Error(data.error || `识别失败（${res.status}）`);
+
+        // 5) 暂存并打开结果页
+        await browser.storage.session.set({
+          screen: { image: await blobToDataUrl(cropped), blocks: data.blocks },
+        });
+        await browser.tabs.create({ url: 'screen.html' });
+        return { ok: true };
+      })()
+        .then((r) => {
+          const result = r as { ok: boolean; error?: string };
+          if (!result.ok && result.error) notifyScreenError(result.error);
+        })
+        .catch((err: unknown) => {
+          notifyScreenError(err instanceof Error ? err.message : String(err));
+        });
       return true;
     }
 
