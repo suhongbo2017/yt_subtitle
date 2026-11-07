@@ -1,0 +1,32 @@
+# ---- 依赖与构建产物 ----
+node_modules/
+.wxt/
+.output/
+.venv/
+native/dist/
+native/ytasr-host.exe
+native/com.pi.ytasr.json
+__pycache__/
+*.pyc
+
+# ---- 运行时数据与缓存 ----
+.cache/
+.tmp/
+out/
+out_gemini/
+logs/
+samples/
+
+# ---- 密钥与凭据（务必不要提交）----
+.env
+cookies.txt
+cookie/
+secrets.json
+extension-settings.backup.json
+
+# ---- 编辑器 ----
+.vscode/
+.idea/
+
+# 与本项目无关的临时试验
+ppt-test/
