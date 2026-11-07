@@ -16,6 +16,7 @@ from pathlib import Path
 
 from . import models as registry
 from .config import Config
+from .screen import blocks_to_json, translate_screen
 from .pipeline import Options, collect_inputs, count_pages, dedupe_names, estimate, run_job
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -259,6 +260,39 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         route = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
+
+        if route == '/api/screen':
+            length = int(self.headers.get('Content-Length') or 0)
+            try:
+                payload = json.loads(self.rfile.read(length) or b'{}')
+            except json.JSONDecodeError:
+                self._json({'ok': False, 'error': 'bad json'}, 400)
+                return
+            image = str(payload.get('image') or '')
+            if not image.startswith('data:image'):
+                self._json({'ok': False, 'error': '缺少 image（dataURL）'}, 400)
+                return
+            import base64
+
+            from .config import Config as _C
+
+            cfg = _C.from_env(
+                provider=payload.get('provider') or None,
+                model=payload.get('model') or None,
+                target_lang=payload.get('target') or '简体中文',
+            )
+            if not cfg.api_key:
+                self._json(
+                    {'ok': False, 'error': '未配置视觉模型 Key（在设置页或模型管理里填）'}, 400
+                )
+                return
+            try:
+                png = base64.b64decode(image.split(',', 1)[1])
+                blocks = translate_screen(png, cfg)
+                self._json({'ok': True, 'blocks': json.loads(blocks_to_json(blocks))})
+            except Exception as exc:  # noqa: BLE001
+                self._json({'ok': False, 'error': str(exc)}, 200)
+            return
 
         if route == '/api/upload':
             name = (query.get('name') or ['upload.pdf'])[0]

@@ -66,7 +66,8 @@ type IncomingMessage =
   | { type: 'ytsub:asr-stop' }
   | { type: 'ytsub:subs-request'; tabId?: number; videoId?: string; url?: string }
   | { type: 'ytsub:subs-poll'; jobId?: string }
-  | { type: 'ytsub:service'; cmd: 'start' | 'stop' | 'status' };
+  | { type: 'ytsub:service'; cmd: 'start' | 'stop' | 'status' }
+  | { type: 'ytsub:screen'; image: string; target?: string };
 
 /** 每个标签页的最新自检状态，供 popup 展示 */
 const tabStates = new Map<number, PageState>();
@@ -376,6 +377,30 @@ export default defineBackground(() => {
       } catch (err) {
         sendResponse({ ok: false, error: String(err) });
       }
+      return true;
+    }
+
+    if (msg?.type === 'ytsub:screen') {
+      const screenMsg = msg as { image: string; target?: string };
+      void (async () => {
+        const settings = await loadSettings();
+        const base = 'http://127.0.0.1:8765';
+        const res = await fetch(`${base}/api/screen`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: screenMsg.image, target: screenMsg.target ?? settings.targetLang }),
+        });
+        const data = await res.json();
+        sendResponse(data.ok ? { ok: true, blocks: data.blocks } : { ok: false, error: data.error });
+      })().catch((err: unknown) =>
+        sendResponse({
+          ok: false,
+          error:
+            err instanceof Error
+              ? `连接本地服务失败（需先运行 start-ui.cmd）：${err.message}`
+              : String(err),
+        }),
+      );
       return true;
     }
 
