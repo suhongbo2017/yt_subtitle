@@ -138,7 +138,13 @@ async function boot() {
     const clean = segments
       .map((s) => ({ start: s.start, end: s.end, text: s.text.trim() }))
       .filter((s) => s.text);
-    if (!clean.length) return;
+    if (!clean.length) {
+      asrProgress = '';
+      notifyError(
+        '没有识别到语音：可能是纯音乐/无人声视频，或音量过低。可换 small 模型重试（start-asr.cmd --model small）',
+      );
+      return;
+    }
     cues = mergeCueLists([], clean);
     cueSource = 'vod';
     cursor = 0;
@@ -164,9 +170,9 @@ async function boot() {
       url: location.href,
     })) as { segments?: { start: number; end: number; text: string }[]; jobId?: string; error?: string };
 
-    if (res?.segments?.length) {
+    if (res?.segments) {
       injectVodSubs(res.segments);
-      return true;
+      return res.segments.length > 0;
     }
     if (!res?.jobId) {
       asrProgress = '';

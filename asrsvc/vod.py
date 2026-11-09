@@ -92,7 +92,11 @@ class SubtitleService:
             return None
         try:
             data = json.loads(path.read_text(encoding='utf-8'))
-            return data.get('segments')
+            segments = data.get('segments') or []
+            if not segments:
+                # 之前失败留下的空缓存，当作未命中，允许重跑
+                return None
+            return segments
         except (OSError, json.JSONDecodeError):
             return None
 
@@ -146,6 +150,17 @@ class SubtitleService:
             job.segments = [
                 {'start': s.start, 'end': s.end, 'text': s.text} for s in segments
             ]
+            if not job.segments:
+                # 0 段：要么整段没语音（纯音乐/环境音），要么识别失败。
+                # 不写缓存，否则以后每次都会拿到空结果、永远修不好。
+                job.state = 'error'
+                job.detail = (
+                    f'没有识别到语音（音频 {duration:.0f}s）。'
+                    '可能是纯音乐/无人声，或音量过低；可换 --model small 再试。'
+                )
+                job.finished = time.time()
+                _log(f'[{job.video_id}] 0 段 → 不写缓存（{duration:.0f}s 音频）')
+                return
             self._save_cache(
                 job.video_id,
                 job.segments,

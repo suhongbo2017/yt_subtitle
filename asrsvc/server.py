@@ -33,6 +33,36 @@ class Segment:
     text: str
 
 
+# whisper 在静音/音乐上最常见的幻觉短句
+_HALLUCINATION = {
+    'you', 'you.', 'thank you', 'thank you.', 'thanks for watching',
+    'thanks for watching!', 'thank you for watching', 'thank you for watching.',
+    'bye', 'bye.', 'bye!', 'yeah', 'yeah.', '.', '[music]', '[applause]',
+    '(music)', '[music] ', 'please subscribe', 'subtitles by the amara.org community',
+    "and we'll see you next time", "we'll see you next time", 'see you next time',
+    'see you next time.', 'thank you for watching!', 'subtitles by',
+}
+
+
+def _is_hallucination(text: str) -> bool:
+    t = text.strip().lower().rstrip('!?,')
+    # 纯标点 / 单个字符（静音段常产出 "." "…" 之类）
+    if not any(ch.isalnum() or '一' <= ch <= '鿿' for ch in t):
+        return True
+    return t in _HALLUCINATION or len(t) <= 3
+
+
+def _clean_segments(segments: list['Segment']) -> list['Segment']:
+    """丢掉纯标点/幻觉短语；整段只剩这些时返回空。"""
+    kept = [x for x in segments if not _is_hallucination(x.text)]
+    if not kept:
+        return []
+    # 剩余内容太少（<2 段或总长 < 20 字）也视为无有效语音
+    if len(kept) < 2 and sum(len(x.text) for x in kept) < 20:
+        return []
+    return kept
+
+
 class Engine:
     """懒加载 + 串行推理（whisper 在 CPU 上并发反而更慢）。"""
 
@@ -110,6 +140,38 @@ class Engine:
                     Segment(start=round(line_start, 2), end=round(line_end, 2),
                             text=''.join(buf).strip())
                 )
+        # VAD 有时会把低音量/纯音乐的语音整段滤掉（"音频正常但 0 段"）。
+        # 去掉 VAD 重试，但必须过质量门槛 —— 实测纯静音时 whisper 会幻觉出 "you"。
+        if not segments and len(audio) > 4096:
+            log(f'VAD 过滤后为 0 段，关闭 VAD 重试（音频 {len(audio) // 1024} KB）')
+            stream2, info2 = model.transcribe(
+                io.BytesIO(audio),
+                language=lang or None,
+                task='transcribe',
+                beam_size=1,
+                vad_filter=False,
+                condition_on_previous_text=True,
+                word_timestamps=False,
+            )
+            retry: list[Segment] = []
+            for s in stream2:
+                text = s.text.strip()
+                if text:
+                    retry.append(Segment(start=round(s.start, 2), end=round(s.end, 2), text=text))
+            chars = sum(len(x.text) for x in retry)
+            usable = _clean_segments(retry)
+            if len(usable) >= 3 and chars >= 40:
+                segments = usable
+                info = info2 or info
+            else:
+                log(f'关闭 VAD 后仍只有 {len(retry)} 段/{chars} 字，判定为人声缺失（丢弃以免幻觉字幕）')
+
+        # 兜底：清洗后仍有纯标点/幻觉短语
+        before = len(segments)
+        segments = _clean_segments(segments)
+        if before and not segments:
+            log(f'{before} 段全是纯标点/幻觉短语，视为无语音')
+
         elapsed = time.time() - started
         return segments, elapsed, float(getattr(info, 'duration', 0.0) or 0.0)
 
@@ -131,6 +193,8 @@ class Engine:
             for s in stream
             if s.text.strip()
         ]
+        # 分片路径同样要防幻觉：静音/音乐块常被识别成 "you" / "Thank you."
+        segments = _clean_segments(segments)
         elapsed = time.time() - started
         return segments, elapsed, float(getattr(info, 'duration', 0.0) or 0.0)
 
