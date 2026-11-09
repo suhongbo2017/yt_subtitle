@@ -157,6 +157,25 @@ function parseVtt(text: string): Cue[] {
 }
 
 /** 同一行重复/滚动补全的 cue 合并成一条，避免字幕抖动 */
+/** 相邻字幕之间的小空隙补齐，避免"字幕闪一下就消失、露出空档" */
+export function fillGaps(cues: Cue[], maxGap = 2.0, maxHold = 8.0): Cue[] {
+  for (let i = 0; i < cues.length; i++) {
+    const cur = cues[i];
+    const next = cues[i + 1];
+    if (next) {
+      const gap = next.start - cur.end;
+      // 空隙 < maxGap 就延到下一句开始；否则最多再撑 maxHold
+      if (gap > 0 && gap <= maxGap) cur.end = next.start;
+      else if (gap > maxGap) cur.end = Math.min(next.start, cur.end + maxHold);
+    } else if (cur.end - cur.start < 1.0) {
+      cur.end = cur.start + 1.0;
+    }
+    // 单句不要过长（滚动字幕合并后可能跨很久）
+    if (cur.end - cur.start > maxHold + 4) cur.end = cur.start + maxHold + 4;
+  }
+  return cues;
+}
+
 export function tidy(cues: Cue[]): Cue[] {
   const sorted = [...cues].sort((a, b) => a.start - b.start);
   const out: Cue[] = [];
@@ -169,23 +188,24 @@ export function tidy(cues: Cue[]): Cue[] {
     }
     out.push({ ...c });
   }
-  return out;
+  return fillGaps(out);
 }
 
 export function parseCues(text: string): Cue[] {
   const s = text.trim();
   if (!s) return [];
-  if (s.startsWith('WEBVTT')) return parseVtt(s);
+  // 所有格式统一过 tidy（含滚动合并 + 空隙补齐），避免下游各处自己补
+  if (s.startsWith('WEBVTT')) return tidy(parseVtt(s));
   if (s.startsWith('{') || s.startsWith(')]}')) {
     try {
-      return parseJson3(s);
+      return tidy(parseJson3(s));
     } catch {
       /* 落到下一种格式 */
     }
   }
   if (s.startsWith('<')) {
     try {
-      return parseXml(s);
+      return tidy(parseXml(s));
     } catch {
       /* 忽略 */
     }

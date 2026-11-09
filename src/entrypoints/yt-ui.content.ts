@@ -84,6 +84,8 @@ async function boot() {
           provider: settings.provider,
           error: currentError,
           asr: asrProgress,
+          source: cueSource,
+          onVideo: /[?&]v=[\w-]{11}/.test(location.search),
           showing: overlay.text,
         },
       })
@@ -122,6 +124,8 @@ async function boot() {
 
   let vodTimer: ReturnType<typeof setInterval> | null = null;
   let asrProgress = '';
+  /** 当前字幕来源，供弹窗显示「正在用哪个功能」 */
+  let cueSource: 'caption' | 'vod' | 'live' | '' = '';
 
   function stopVodPolling() {
     if (vodTimer) {
@@ -136,6 +140,7 @@ async function boot() {
       .filter((s) => s.text);
     if (!clean.length) return;
     cues = mergeCueLists([], clean);
+    cueSource = 'vod';
     cursor = 0;
     asrLive = null;
     asrProgress = '';
@@ -366,6 +371,7 @@ async function boot() {
     cursor = 0;
     holdUntil = 0;
     asrBase = null;
+    cueSource = '';
     asrLive = null;
     overlay.hide();
     notifyError(null);
@@ -405,6 +411,7 @@ async function boot() {
     if (!data || data.ns !== NS) return;
     if (data.t === 'cues') {
       cues = mergeCueLists(cues, data.cues);
+      cueSource = 'caption';
       cursor = 0;
       reportState(true);
     }
@@ -484,6 +491,7 @@ async function boot() {
       return { start, end, text: seg.text.trim() };
     });
     cues = mergeCueLists(cues, incoming);
+    cueSource = 'live';
     cursor = 0;
     asrChunks += 1;
     console.debug(`[ytsub] ASR 第 ${asrChunks} 块：${incoming.length} 句`);

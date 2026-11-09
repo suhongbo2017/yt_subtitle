@@ -125,3 +125,22 @@ test('parseCues：无法识别的内容返回空数组而不是抛错', () => {
   assert.deepEqual(parseCues('garbage'), []);
   assert.deepEqual(parseCues('{"events": "nope"}'), []);
 });
+
+test('fillGaps：小空隙补齐，大空隙只延一小段', () => {
+  const cues = parseCues(
+    JSON.stringify({
+      events: [
+        { tStartMs: 0, dDurationMs: 2000, segs: [{ utf8: 'first line' }] },
+        { tStartMs: 3500, dDurationMs: 2000, segs: [{ utf8: 'second line' }] },
+        { tStartMs: 20000, dDurationMs: 2000, segs: [{ utf8: 'far away line' }] },
+      ],
+    }),
+  );
+  // 第一句原 end=2.0，与第二句(3.5) 空隙 1.5s ≤ 2s → 延到 3.5
+  assert.equal(cues[0].end, 3.5);
+  // 第二句原 end=5.5，与第三句(20) 空隙 14.5s > 2s → 只延到 5.5+8=13.5
+  assert.equal(cues[1].end, 13.5);
+  // 覆盖是否连续（除大空隙外）
+  const covered = cues.slice(0, 2).every((c, i) => i === 0 || c.start <= cues[i - 1].end + 1e-6);
+  assert.ok(covered, '相邻字幕应首尾相接');
+});

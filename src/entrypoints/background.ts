@@ -28,6 +28,10 @@ export interface PageState {
   provider: string;
   error: string;
   asr?: string;
+  /** 字幕来源：caption=YouTube 字幕轨，vod=本地生成，live=实时识别，空=还没有 */
+  source?: 'caption' | 'vod' | 'live' | '';
+  /** 视频页/非视频页 */
+  onVideo?: boolean;
   showing: { orig: string; tr: string };
 }
 

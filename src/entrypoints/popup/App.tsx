@@ -4,6 +4,33 @@ import type { PageState } from '@/entrypoints/background';
 import { settingsItem } from '@/lib/settings';
 import { DEFAULT_SETTINGS, type Provider, type Settings } from '@/lib/types';
 
+type PageStateWithSource = PageState & { source?: 'caption' | 'vod' | 'live' | ''; onVideo?: boolean };
+
+function featureLabel(st: PageStateWithSource): string {
+  if (st.source === 'caption') return '在线字幕';
+  if (st.source === 'vod') return '点播字幕';
+  if (st.source === 'live') return '实时识别';
+  if (st.asr || st.onVideo) return '等待字幕';
+  return '未检测到视频';
+}
+
+function featureState(st: PageStateWithSource, settings: Settings): string {
+  if (st.error) return '失败';
+  if (st.asr) return st.asr;
+  if (st.source === 'caption') return `已就绪（YouTube 字幕轨）`;
+  if (st.source === 'vod') return '已就绪（本地生成，可拖动）';
+  if (st.source === 'live') return '识别中';
+  if (!st.onVideo) return '当前不是视频页';
+  if (!settings.enabled) return '翻译已关闭';
+  return '正在获取字幕…';
+}
+
+function featureTone(st: PageStateWithSource): string {
+  if (st.error) return 'text-rose-400';
+  if (st.source) return 'text-emerald-400';
+  return 'text-amber-400';
+}
+
 function Toggle({
   checked,
   onChange,
@@ -413,35 +440,48 @@ export default function App() {
         打开完整设置
       </button>
 
-      <div className="space-y-1 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-[11px]">
+      <div className="space-y-1.5 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-[11px]">
         <div className="flex items-center justify-between">
-          <span className="font-medium text-neutral-400">当前页面自检</span>
+          <span className="font-medium text-neutral-400">运行状态</span>
           <span className={state ? 'text-emerald-400' : 'text-neutral-600'}>
             {state ? '已注入' : '未检测到'}
           </span>
         </div>
-        {settings.provider === 'llm' && (
-          <div className="space-y-0.5 text-[11px] text-neutral-500">
-            <div className="truncate">端点 {settings.apiBase || '未填'}</div>
-            <div className="truncate">
-              模型 {settings.apiModel || '未填'} ·{' '}
-              <span className={settings.apiKey ? 'text-emerald-400' : 'text-amber-400'}>
-                {settings.apiKey ? 'Key 已填' : 'Key 未填'}
-              </span>
-            </div>
-          </div>
-        )}
+
         {state ? (
-          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-neutral-500">
-            <span>字幕条数</span>
-            <span className="text-right text-neutral-300">{state.cues}</span>
-            <span>已翻译</span>
-            <span className="text-right text-neutral-300">{state.translated}</span>
-            <span>当前译文</span>
-            <span className="truncate text-right text-neutral-300">{state.showing.tr || '—'}</span>
-            <span>错误</span>
-            <span className="truncate text-right text-rose-400">{state.error || '无'}</span>
-          </div>
+          <>
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-300">
+                {featureLabel(state)}
+              </span>
+              <span className={featureTone(state)}>{featureState(state, settings)}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-neutral-500">
+              <span>引擎</span>
+              <span className="text-right text-neutral-300">
+                {settings.provider === 'google' ? 'Google 免费' : settings.apiModel || 'LLM'}
+              </span>
+              <span>字幕</span>
+              <span className="text-right text-neutral-300">
+                {state.cues} 条 · 已译 {state.translated}
+              </span>
+              <span>当前显示</span>
+              <span className="truncate text-right text-neutral-300">{state.showing.tr || '—'}</span>
+              {state.error ? (
+                <>
+                  <span>错误</span>
+                  <span className="truncate text-right text-rose-400" title={state.error}>
+                    {state.error}
+                  </span>
+                </>
+              ) : null}
+            </div>
+            {settings.provider === 'llm' && (
+              <div className="truncate text-[10px] text-neutral-600" title={settings.apiBase}>
+                {settings.apiBase} · {settings.apiModel}
+              </div>
+            )}
+          </>
         ) : (
           <p className="text-neutral-600">打开一个 YouTube 视频页后再看这里。</p>
         )}
