@@ -85,6 +85,7 @@ function chunkByUrlLength(lines: string[], maxChars: number): number[][] {
 async function googleTranslate(lines: string[], target: string): Promise<string[]> {
   const lang = target || 'zh-CN';
   const out: string[] = new Array(lines.length).fill('');
+  const errors: string[] = [];
 
   for (const batch of chunkByUrlLength(lines, 1200)) {
     const subset = batch.map((i) => lines[i]);
@@ -92,20 +93,27 @@ async function googleTranslate(lines: string[], target: string): Promise<string[
       const translated = await googleBulk(subset, lang);
       batch.forEach((i, k) => (out[i] = translated[k]));
       continue;
-    } catch {
-      /* 退回逐条 */
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
     }
     for (let k = 0; k < batch.length; k += 4) {
       await Promise.all(
         batch.slice(k, k + 4).map(async (i) => {
           try {
             out[i] = (await googleSingle(lines[i], lang)).trim();
-          } catch {
+          } catch (err) {
+            errors.push(err instanceof Error ? err.message : String(err));
             out[i] = '';
           }
         }),
       );
     }
+  }
+
+  // 一条都没翻出来：抛真实原因，别让界面"静默无反应"
+  if (!out.some((t) => t && t.trim())) {
+    const first = errors.find(Boolean) ?? '未知错误';
+    throw new Error(`Google 翻译失败：${first.slice(0, 200)}（可改用 LLM 引擎）`);
   }
   return out;
 }

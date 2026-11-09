@@ -48,6 +48,7 @@ export default function App() {
   const [svc, setSvc] = useState<{ online: boolean; model?: string }>({ online: false });
   const [svcBusy, setSvcBusy] = useState(false);
   const [svcMsg, setSvcMsg] = useState('');
+  const [vision, setVision] = useState<{ online: boolean; model?: string }>({ online: false });
   const [screenBusy, setScreenBusy] = useState(false);
   const [screenMsg, setScreenMsg] = useState('');
 
@@ -176,6 +177,32 @@ export default function App() {
     };
   }, [settings.asrUrl]);
 
+  // 探测文档/视觉服务（:8765），截图翻译依赖它
+  useEffect(() => {
+    let alive = true;
+    const ping = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8765/api/config', {
+          signal: AbortSignal.timeout(1500),
+        });
+        const data = (await res.json()) as {
+          models?: { id: string; model: string; is_default?: boolean }[];
+          default?: string;
+        };
+        const cur = data.models?.find((m) => m.id === data.default);
+        if (alive) setVision({ online: true, model: cur?.model });
+      } catch {
+        if (alive) setVision({ online: false });
+      }
+    };
+    void ping();
+    const timer = setInterval(ping, 3000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
   useEffect(() => {
     void settingsItem.getValue().then((saved) => {
       setSettings({ ...DEFAULT_SETTINGS, ...(saved ?? {}) });
@@ -232,11 +259,27 @@ export default function App() {
         </div>
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-            svc.online ? 'bg-sky-500/15 text-sky-400' : 'bg-rose-500/15 text-rose-400'
+            svc.online ? 'bg-sky-500/15 text-sky-400' : 'bg-neutral-800 text-neutral-500'
           }`}
-          title={svc.online ? `本地服务在线（${svc.model ?? ''}）` : '本地 ASR 服务未启动'}
+          title={
+            svc.online
+              ? `ASR 服务在线（${svc.model ?? ''}）· 语音识别用`
+              : 'ASR 服务未启动（:8770）· 只影响无字幕视频'
+          }
         >
-          {svc.online ? `ASR ${svc.model ?? '在线'}` : 'ASR 离线'}
+          ASR{svc.online ? '' : ' ✕'}
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            vision.online ? 'bg-violet-500/15 text-violet-300' : 'bg-neutral-800 text-neutral-500'
+          }`}
+          title={
+            vision.online
+              ? `视觉服务在线（${vision.model ?? ''}）· 截图翻译/文档翻译用`
+              : '视觉服务未启动（:8765）· 截图翻译需要它，双击 start-ui.cmd'
+          }
+        >
+          视觉{vision.online ? '' : ' ✕'}
         </span>
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -354,6 +397,11 @@ export default function App() {
       </button>
       {!screenBusy && screenMsg && (
         <p className="mb-1 text-center text-[10px] leading-relaxed text-rose-400">{screenMsg}</p>
+      )}
+      {!screenBusy && !screenMsg && !vision.online && (
+        <p className="mb-1 text-center text-[10px] leading-relaxed text-amber-400">
+          截图翻译需要视觉服务：双击 start-ui.cmd（:8765）
+        </p>
       )}
 
       <button
