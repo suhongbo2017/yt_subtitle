@@ -27,7 +27,8 @@ class Config:
     dpi: int = 250
     max_side: int = 2200
     concurrency: int = 2
-    timeout: int = 180
+    # 实测 Gemini 在密集表格页要 160s+，180 太贴线
+    timeout: int = 300
     proxy: str = ''
     mock: bool = False
     extra_headers: dict[str, str] = field(default_factory=dict)
