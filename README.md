@@ -1,7 +1,8 @@
 # YouTube 双语字幕 · 扫描件翻译
 
-> 📘 **接手项目请先读 [`docs/HANDOVER.md`](docs/HANDOVER.md)** —— 架构、决策、踩坑、排障、待办都在那里。
-> 本 README 偏使用说明。
+> 📗 **只想用起来** → [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md)（安装/四个功能怎么用/常见问题）
+> 📘 **接手维护** → [`docs/HANDOVER.md`](docs/HANDOVER.md)（架构/决策/踩坑/排障/待办）
+> 本 README 是两者的精简索引。
 
 
 在 YouTube 播放页实时抓取字幕轨并翻译，中英双语叠加显示。支持点播、直播和无官方字幕的视频（走播放器自动字幕）。
