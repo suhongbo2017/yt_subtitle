@@ -73,7 +73,8 @@ type IncomingMessage =
   | { type: 'ytsub:subs-request'; tabId?: number; videoId?: string; url?: string }
   | { type: 'ytsub:subs-poll'; jobId?: string }
   | { type: 'ytsub:service'; cmd: 'start' | 'stop' | 'status' }
-  | { type: 'ytsub:screen'; region?: { x: number; y: number; w: number; h: number; dpr: number } };
+  | { type: 'ytsub:screen'; region?: { x: number; y: number; w: number; h: number; dpr: number } }
+  | { type: 'ytsub:page-translate'; toggle?: boolean };
 
 /**
  * 注入页面里的选框 UI：拖拽划出矩形，Esc 取消，返回设备像素坐标。
@@ -495,6 +496,33 @@ export default defineBackground(() => {
       } catch (err) {
         sendResponse({ ok: false, error: String(err) });
       }
+      return true;
+    }
+
+    if (msg?.type === 'ytsub:page-translate') {
+      // 注入/切换整页翻译（第二次点 = 恢复原文，由脚本内部判断）
+      void (async () => {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id == null) throw new Error('找不到当前标签页');
+        const url = tab.url ?? '';
+        if (!/^https?:/i.test(url)) throw new Error('这个页面不支持翻译（只能翻译 http/https 网页）');
+
+        await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['/content-scripts/page-tr.js'],
+        });
+        return { ok: true };
+      })()
+        .then((r) => sendResponse(r))
+        .catch((err: unknown) => {
+          const text = err instanceof Error ? err.message : String(err);
+          sendResponse({
+            ok: false,
+            error: /Cannot access|cannot be scripted|chrome:\/\//i.test(text)
+              ? '这个页面不允许注入脚本（浏览器内置页 / 应用商店 / 其它扩展页面）'
+              : text,
+          });
+        });
       return true;
     }
 

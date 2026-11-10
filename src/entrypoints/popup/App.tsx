@@ -76,6 +76,8 @@ export default function App() {
   const [svcBusy, setSvcBusy] = useState(false);
   const [svcMsg, setSvcMsg] = useState('');
   const [vision, setVision] = useState<{ online: boolean; model?: string }>({ online: false });
+  const [pageTrBusy, setPageTrBusy] = useState(false);
+  const [pageTrMsg, setPageTrMsg] = useState('');
   const [screenBusy, setScreenBusy] = useState(false);
   const [screenMsg, setScreenMsg] = useState('');
 
@@ -129,6 +131,34 @@ export default function App() {
           ? '页面里没有注入脚本：扩展刚更新过，请刷新视频页面后重试'
           : msg,
       );
+    }
+  };
+
+  // 整页翻译：注入脚本替换页面文字，再点一次恢复原文
+  const togglePageTranslate = async () => {
+    setPageTrBusy(true);
+    setPageTrMsg('');
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id == null) throw new Error('找不到当前标签页');
+      if (!/^https?:/i.test(tab.url ?? '')) {
+        throw new Error('这个页面不支持翻译（只能是 http/https 网页）');
+      }
+      // 直接注入，不经过 background 转发
+      await browser.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['/content-scripts/page-tr.js'],
+      });
+      window.close();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setPageTrMsg(
+        /Cannot access|cannot be scripted|chrome:\/\//i.test(message)
+          ? '这个页面不允许注入脚本（浏览器内置页 / 应用商店页）'
+          : message,
+      );
+    } finally {
+      setPageTrBusy(false);
     }
   };
 
@@ -413,6 +443,18 @@ export default function App() {
           </button>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={() => void togglePageTranslate()}
+        disabled={pageTrBusy}
+        className="w-full rounded-lg bg-violet-600 py-2 text-xs font-medium text-white transition hover:bg-violet-500 disabled:opacity-60"
+      >
+        {pageTrBusy ? '正在注入…' : '🌐 翻译此页面（再点恢复原文）'}
+      </button>
+      {pageTrMsg && (
+        <p className="text-center text-[10px] leading-relaxed text-violet-300">{pageTrMsg}</p>
+      )}
 
       <button
         type="button"
