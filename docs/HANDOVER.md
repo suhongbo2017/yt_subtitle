@@ -9,9 +9,21 @@
 
 | 子系统 | 干什么 | 入口 |
 |---|---|---|
-| **浏览器扩展** `src/` | 在 YouTube 页面上叠加双语字幕；没有字幕轨的视频用本地 ASR 生成 | `chrome://extensions` 加载 `.output/chrome-mv3` |
+| **浏览器扩展** `src/` | 在 YouTube 页面上叠加双语字幕；没有字幕轨的视频用本地 ASR 生成；截图翻译 | `chrome://extensions` 加载 `.output/chrome-mv3` |
 | **本地 ASR 服务** `asrsvc/` | faster-whisper 转写：分片实时识别 + 整段精修 + 按 videoId 缓存 | `python -m asrsvc.server` → `127.0.0.1:8770` |
-| **文档翻译** `pdftranslate/` | 扫描件/图片 PDF → 视觉大模型转写+翻译 → 双语 PDF / 覆盖式 HTML / Markdown | `python -m pdftranslate.server` → `127.0.0.1:8765` |
+| **文档/截图翻译** `pdftranslate/` | 视觉大模型转写+翻译：扫描件 PDF、截图 → 双语 PDF / 覆盖式 HTML / Markdown | `python -m pdftranslate.server` → `127.0.0.1:8765` |
+
+### 扩展的四个功能（互相独立）
+
+| 功能 | 依赖 | 入口 |
+|---|---|---|
+| 在线字幕翻译 | 无（用 YouTube 自带字幕轨） | 自动，打开视频即生效 |
+| 点播字幕生成 | ASR 服务 `:8770` + cookies + Node | 弹窗「语音识别」开关 |
+| 实时识别（兜底） | ASR 服务 `:8770` | 弹窗「改用实时识别」按钮 |
+| 截图翻译 | 视觉服务 `:8765` | 弹窗「📝 截图翻译」/ 页面框选 |
+
+弹窗顶部有两个服务状态徽章：`ASR`（:8770）与 `视觉`（:8765），在线才亮；底部「运行状态」卡片
+显示当前在用哪个功能、字幕条数与已译条数、当前显示内容、错误信息。
 
 三者共享的思路：**能用现成信号就别硬造**。
 - 视频优先用 YouTube 自带字幕轨（含自动生成），没有才上 ASR
@@ -56,7 +68,8 @@ subtitle/
 │  │  ├─ yt-ui.content.ts       # 叠加层 + 翻译调度 + ASR 字幕接入
 │  │  ├─ background.ts          # 翻译请求 / 自检状态 / ASR 编排 / Native 调用
 │  │  ├─ offscreen/             # 离屏文档：按标签页抓音频（tabCapture）
-│  │  ├─ options/ popup/        # 设置页、弹窗
+│  │  ├─ screen/                # 截图翻译结果页（底图 + 译文绝对定位）
+│  │  ├─ options/ popup/        # 设置页、弹窗（含运行状态面板）
 │  ├─ lib/
 │  │  ├─ timedtext.ts           # json3 / srv3 / srv1 / vtt 解析 + 滚动字幕合并
 │  │  ├─ page-tap.ts            # 字幕请求截获 + 直连拉取
@@ -72,6 +85,7 @@ subtitle/
 │  ├─ pipeline.py               # CLI 与 Web UI 共用的流水线
 │  ├─ server.py ui.html         # 本地操作界面（:8765）
 │  ├─ models.py config.py       # 模型注册表（models.json）/ 配置
+│  ├─ screen.py                 # 截图翻译（截图专用提示词）
 ├─ asrsvc/                      # 本地语音识别
 │  ├─ server.py                 # HTTP 接口 + 模型管理
 │  └─ vod.py                    # 点播字幕：yt-dlp 下音频 → 整段转写 → 缓存
@@ -147,7 +161,33 @@ render（PyMuPDF 渲染，按页懒加载）
 
 **每页结果都落盘缓存**（`out/.cache/<name>/page-N.json`），改排版/修坐标**不用重新调模型**。
 
-### 4.4 Native 启动器（`native/`）
+### 4.4 截图翻译
+
+```
+弹窗「📝 截图翻译」→ chrome.scripting.executeScript 注入选框 UI
+  → 用户拖拽（实时显示宽高与设备像素）/ 整页 / Esc 取消
+  → 选框移除 → captureVisibleTab 截全页
+  → OffscreenCanvas 按 devicePixelRatio 裁剪选区
+  → background POST :8765/api/screen（视觉模型）
+  → storage.session 暂存 → 打开 screen.html 结果页
+```
+
+结果页：截图做底图、译文按原位置绝对定位；支持只看译文、字号、打印、逐块复制、`Ctrl+C` 全选复制。
+错误走**系统通知**（此时弹窗已关闭，页面内没有可靠反馈通道）。
+
+### 4.5 状态上报链路
+
+内容脚本每 3 秒（或状态变化时立即）向 background 上报：
+
+```ts
+{ videoId, cues, translated, provider, error, asr, source, onVideo, showing }
+//  source: 'caption'(YouTube 字幕轨) | 'vod'(本地生成) | 'live'(实时识别) | ''
+```
+
+background 按 tabId 存入内存 Map，弹窗通过 `ytsub:getState` 读取**当前活动标签页**的那份。
+注意：MV3 的 SW 会被回收，这个 Map 是内存态，SW 重启后由内容脚本的下一次上报恢复。
+
+### 4.6 Native 启动器（`native/`）
 
 扩展**不能**启动本地进程，所以用 Chrome Native Messaging：
 
@@ -234,6 +274,20 @@ cp .env.example .env          # 填 VISION_API_KEY（qwen/gemini/...）
 - **表格行的 `\t` 会骗过宽度测量**：`text_length('\t')` 只算 1 字符，实际渲染撑开好几个字宽
 - **模型坐标单位不统一**：有时 0-1 有时像素，要按图片实际宽高判定
 
+### 测试环境（写测试时必看）
+
+- **harness 页面（localhost）没有扩展 API**：`/bundle/yt-ui.js` 是普通 script 加载的，
+  里面 `browser.runtime` 不存在 → 状态上报必然失败。验证扩展的消息链路必须用**真实
+  youtube.com 页面**（或加载扩展后打开任意 https 页面）
+- **Node 的 fetch 不读 `HTTP_PROXY`**：用 `translate.ts` / `googleTranslate` 做测试时，
+  未装代理会让所有请求超时（表现为"Google 全挂"，其实端点正常）。用
+  `harness/proxy-fetch.mjs` 的 `installProxyFetch()` 或 curl 验证
+- **popup 在 CDP 里是普通标签页**：`tabs.query({active:true})` 会返回弹窗自己，
+  状态面板显示"未检测到"。测试时先 `page.bringToFront()` 把视频页设为活动标签
+- **MV3 SW 会被回收**：`/json/list` 里没有 `service_worker` 时先开一次 popup 唤醒
+- **CDP evaluate 的返回值是 `{type, value}` 包装**：取 `.value`，且不要用同一个
+  消息 id 发两个请求（会拿到第一个的响应）
+
 ### 工具链
 - **本机 `NODE_ENV=production`**：`npm install` 会跳过所有 devDependencies，必须 `--include=dev`
 - **Chrome 137+ 禁用了 `--load-extension`**：自动化加载要用 CDP 的 `Extensions.loadUnpacked`
@@ -244,11 +298,13 @@ cp .env.example .env          # 填 VISION_API_KEY（qwen/gemini/...）
 ## 9. 已知限制
 
 1. **无文本层的纯扫描件**（手写信那种）只能依赖模型 bbox，覆盖式 HTML 会有错位
-2. **表格**：模型给的 `rows` 结构可用，但极宽表格在 PDF 里会挤，HTML 里更好看
-3. **yt-dlp 通路不稳**：出口 IP 被标记时即使有 cookie 也会被 bot 检查拦住
-4. **直播**：目前只做点播（下载→整段转写）；实时分片仅作兜底
-5. **翻译质量**：Google 免费端点偏直译，长句建议用 LLM 引擎
-6. **ASR 中文**：`base` 对中文偏弱，中文内容建议 `--model small`
+2. **纯音乐/无人声视频**：whisper 识别不出内容，现在会明确报错而不是塞幻觉字幕
+3. **演唱类视频**（歌词被唱出来）：识别质量明显下降，属于模型能力边界
+4. **表格**：模型给的 `rows` 结构可用，但极宽表格在 PDF 里会挤，HTML 里更好看
+5. **yt-dlp 通路不稳**：出口 IP 被标记时即使有 cookie 也会被 bot 检查拦住
+6. **直播**：目前只做点播（下载→整段转写）；实时分片仅作兜底
+7. **翻译质量**：Google 免费端点偏直译，长句建议用 LLM 引擎
+8. **ASR 中文**：`base` 对中文偏弱，中文内容建议 `--model small`
 
 ---
 
@@ -268,6 +324,18 @@ cp .env.example .env          # 填 VISION_API_KEY（qwen/gemini/...）
 
 如果没反应：查扩展 SW 的 console（`chrome://extensions` → 服务工作进程），
 以及 `chrome.notifications` 弹出的系统通知（截图流程的错误都走那里，因为弹窗已关闭）。
+
+### 已验证 / 已修复（2026-11-09）
+
+| 问题 | 结论 |
+|---|---|
+| 无字幕视频"什么都没发生" | 0 段结果被写进缓存 → 已修（不写空缓存 + 明确报错） |
+| 静音/音乐视频出现假字幕 | whisper 幻觉 → 已加 `_clean_segments()` 过滤 |
+| 连点两次启动出两个实例 | 端口检查移到模型加载之前 → 已修 |
+| 字幕中间有空档、提前消失 | 时长按字数估算偏短 → 新增 `fillGaps()` 补齐空隙 |
+| Google 引擎全挂时无提示 | 静默返回空数组 → 改为抛真实错误 |
+| 弹窗看不出在跑哪个功能 | 新增运行状态面板 + 双服务徽章 |
+| 文档翻译超时风险 | gemini 密集表格页 164s → 默认超时 180s 提到 300s |
 
 ### 功能待办
 
@@ -292,6 +360,11 @@ cp .env.example .env          # 填 VISION_API_KEY（qwen/gemini/...）
 | 覆盖式 HTML 位置错乱 | 该 PDF 是否真的没有文本层 | 有文本层会自动校准；没有则改用双语 PDF |
 | `npm install` 装不上 devDeps | `echo %NODE_ENV%` | `set NODE_ENV=` 后重装 |
 | ASR 服务起不来，提示端口占用 | `netstat -ano | grep 8770` | `stop-asr.cmd` 后再起（旧版本会双绑定，已修） |
+| 无字幕视频点开关后"没反应" | `tail .cache/asrsvc.log` | 看是否有 `0 段` / `yt-dlp 下载失败`；0 段=无人声，下载失败=IP 被标记或 cookie 过期 |
+| 字幕中间有空档 | 弹窗「运行状态」看字幕条数 | 条数明显少于实际句数 = 字幕轨本身有断档（音乐/静音段），需走 ASR |
+| 字幕出现但没译文 | 运行状态卡片的「错误」行 | 现在错误常驻显示；多为 Google 限流，切 LLM 引擎 |
+| 截图翻译点完没反应 | 右下角系统通知 | 弹窗已关闭，错误只走通知，内容即原因 |
+| 弹窗状态显示"未检测到" | 是否在 youtube.com 页面 | 内容脚本只注入 youtube.com；其它页面不显示状态属正常 |
 
 日志位置：
 
@@ -325,7 +398,33 @@ curl -X POST "127.0.0.1:8770/asr?lang=en" --data-binary @some.webm
 
 ---
 
-## 13. 环境
+## 13. 仓库与协作
+
+```
+origin  git@github.com:suhongbo2017/yt_subtitle.git   (main)
+```
+
+首次克隆后：
+
+```bash
+git clone git@github.com:suhongbo2017/yt_subtitle.git
+cd yt_subtitle
+npm install --include=dev && npm run build       # 扩展
+python -m venv .venv && .venv\Scripts\python.exe -m pip install -r requirements.txt
+# 然后按第 2 节配置 .env / cookies.txt，按第 6 节装启动器
+```
+
+提交约定（本仓库历史即范例）：
+
+- `feat(scope): 做了什么` + 正文写**为什么**，尤其是踩坑点
+- `fix(scope): ...` 正文带上**日志证据**与验证结论
+- `docs:` / `chore:` 同理
+
+仓库里**不含**：`.env`、`cookies.txt`、`secrets.json`、`models 缓存`、`samples/`（测试语料）、
+`native/ytasr-host.exe`（7MB 二进制）、`ppt-test/`（无关试验）。`native/ytasr-host.exe`
+需要按第 4.6 节的 PyInstaller 命令自行构建。
+
+## 14. 环境
 
 | 项 | 版本 / 说明 |
 |---|---|
