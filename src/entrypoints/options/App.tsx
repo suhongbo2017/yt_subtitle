@@ -327,6 +327,22 @@ export default function App() {
       </section>
 
       <section className="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+        <h2 className="text-sm font-semibold text-neutral-300">截图翻译 / 视觉服务</h2>
+        <p className="text-[11px] leading-relaxed text-neutral-500">
+          截图翻译由独立的 <b className="text-neutral-300">pdftranslate</b> 项目提供识别能力，
+          需要先在那边的目录双击 <code className="rounded bg-neutral-800 px-1">start-server.cmd</code>。
+        </p>
+        <Field label="视觉服务地址">
+          <input
+            className={inputCls}
+            placeholder="http://127.0.0.1:8765"
+            value={settings.visionUrl}
+            onChange={(e) => update({ visionUrl: e.target.value })}
+          />
+        </Field>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
         <h2 className="text-sm font-semibold text-neutral-300">语音识别（无字幕视频）</h2>
         <p className="text-[11px] leading-relaxed text-neutral-500">
           视频没有字幕轨时，扩展可以抓取标签页音频，交给本地 whisper 服务转写后再翻译。

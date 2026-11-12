@@ -557,7 +557,8 @@ export default defineBackground(() => {
 
         // 4) 送本地视觉模型
         const settings = await loadSettings();
-        const res = await fetch('http://127.0.0.1:8765/api/screen', {
+        const visionBase = settings.visionUrl.replace(/\/+$/, '');
+        const res = await fetch(`${visionBase}/api/screen`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

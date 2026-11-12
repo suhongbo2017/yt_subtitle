@@ -28,6 +28,8 @@ export interface Settings {
   asrUrl: string;
   /** 每次录音切片长度（秒） */
   asrChunkSec: number;
+  /** 视觉服务地址（截图翻译用；由独立的 pdftranslate 项目提供） */
+  visionUrl: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -45,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   asrEnabled: false,
   asrUrl: 'http://127.0.0.1:8770',
   asrChunkSec: 3,
+  visionUrl: 'http://127.0.0.1:8765',
 };
 
 /** 页面主世界 -> UI 内容脚本 */

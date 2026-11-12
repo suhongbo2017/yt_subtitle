@@ -279,137 +279,21 @@ python scripts/import-cookies.py cookie/ytb.txt cookies.txt
 
 ---
 
-# 附：PDF / 图片 OCR 翻译（视觉大模型）
+---
 
-处理扫描件、手写件、截图这类**没有可用文本层**的文档。核心思路：不用传统 OCR，
-直接把整页图交给视觉大模型，一次完成「转写 + 理解版式 + 翻译」。
+## 相关项目
 
-> 传统 OCR 对手写体基本无解。样本里那封 1970 年的手写信，
-> Adobe 自带的文本层识别成了 `Eagiaaerins School`（正确是 Engineering School），
-> 而视觉模型能整段读通。
+**扫描件 / PDF / 截图翻译** 已拆分到独立项目 [`pdftranslate`](../pdftranslate)：
 
-## 环境
+- 视觉大模型转写+翻译（不做传统 OCR）
+- 输出双语 PDF / 覆盖式 HTML / Markdown
+- 自带本地 Web 界面（`:8765`）
 
-```bash
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt
-cp .env.example .env      # 填提供商对应的 Key
+本项目的**截图翻译**功能依赖它提供的服务：
+
+```cmd
+:: 在 pdftranslate 目录下
+start-server.cmd
 ```
 
-### 模型管理（界面里增删改）
-
-界面右上角「管理」打开模型管理：
-
-- 列出所有模型：显示名称、id、模型名、端点、Key 状态（已就绪 / 未填）、是否走代理、是否内置
-- 每个模型可 **测试连接**（发一个极小的 ping 请求，显示延迟或错误）、**编辑**、**设默认**、**删除**
-- 「添加模型」填 id / 显示名称 / API 端点 / 模型名 / Key，即可接入任意 OpenAI 兼容的视觉接口
-- Key 写在界面上会存进项目根目录的 `secrets.json`（**不会** 回显给前端，列表里只显示"已就绪"）
-- 模型列表存在 `models.json`，`--provider` 命令行参数用的就是这里的 id
-
-Key 解析优先级：`secrets.json` → 该模型的 `key_env` 环境变量 → `VISION_API_KEY`。
-
-### 内置模型
-
-在 `.env` 里填 Key 也能用（不必用界面），`--provider` 选 id：
-
-| provider | 模型 | Key 变量 | 网络 |
-|---|---|---|---|
-| `qwen`（默认） | `qwen3-vl-plus` | `DASHSCOPE_API_KEY` | 国内直连 |
-| `gemini` | `gemini-2.5-flash` | `GEMINI_API_KEY` | 走代理（默认 `http://127.0.0.1:7897`，可用 `VISION_PROXY` 覆盖） |
-| `openai` | `gpt-4.1-mini` | `OPENAI_API_KEY` | 走代理 |
-| `glm` | `glm-4.5v` | `ZHIPU_API_KEY` | 国内直连 |
-
-```bash
-# 换成 Gemini
-VISION_PROVIDER=gemini
-GEMINI_API_KEY=AIza...
-
-# 或者只临时切一次
-.venv/Scripts/python.exe -m pdftranslate x.pdf --provider gemini
-
-# 任意 OpenAI 兼容端点
-.venv/Scripts/python.exe -m pdftranslate x.pdf --base-url https://xxx/v1 --model xxx-vl
-```
-
-模型不可用时会自动按备用列表重试（如 Gemini 的 `2.5-pro` / `flash-latest`），
-429 会退避重试，`response_format` 不被支持时也会自动去掉再试。
-
-> 实测对比：`qwen3-vl-plus` 会用 JSON 结构、会自己标注存疑处；
-> `qwen3.5-ocr` 只输出纯文本且幻觉明显（把 Los Alamos 编成 San Francisco），不要用。
-
-## 图形界面（推荐）
-
-```bash
-.venv/Scripts/python.exe -m pdftranslate.server          # 默认 http://127.0.0.1:8765/
-.venv/Scripts/python.exe -m pdftranslate.server --port 9000 --input samples --out out
-```
-
-
-界面里能做的：
-
-- 左侧列出 `samples/` 下的 PDF / 图片，显示页数、大小、已产出哪些格式；支持**拖拽上传**
-- 右侧选提供商 / 模型 / 目标语言 / 页码范围 / DPI / 并发，勾选是否生成 HTML
-- 实时日志 + 进度条，结果区直接给 HTML 预览、双语 PDF、译文 MD 的链接
-- 选文件后自动估算总页数和预计耗时
-
-## 命令行用法
-
-```bash
-# 整个目录（递归扫描 PDF / 图片）
-.venv/Scripts/python.exe -m pdftranslate samples/release_02_document_bundle -o out
-
-# 先看会处理哪些文件、共多少页、预计耗时（不渲染、不花钱）
-.venv/Scripts/python.exe -m pdftranslate samples/release_02_document_bundle --dry-run
-
-# 断点续跑：已翻译过的页走缓存，已产出完整结果的文件直接跳过
-.venv/Scripts/python.exe -m pdftranslate samples/release_02_document_bundle --skip-done
-
-# 先不联网，验证排版（用内置示例数据）
-.venv/Scripts/python.exe -m pdftranslate samples/xxx.pdf --mock -o out
-
-# 真实翻译
-.venv/Scripts/python.exe -m pdftranslate samples/xxx.pdf -o out
-
-# 只翻第 1-3 页，手写件提高渲染精度
-.venv/Scripts/python.exe -m pdftranslate samples/xxx.pdf --pages 1-3 --dpi 250
-
-# 其他参数
---target 繁體中文        # 目标语言
---concurrency 3         # 并发页数
---no-original           # PDF 里只放译文
---only md|pdf           # 只输出一种格式
---force                 # 忽略缓存重新请求
---skip-done             # 跳过已有输出的文件
---dry-run               # 只统计，不调用 API
---concurrency 3         # 并发页数
-```
-
-## 输出
-
-- `out/<文件名>_html/index.html` —— **覆盖式 HTML**（表格会渲染成真正的 `<table>`）（`--html`），原页做底图、译文按原坐标贴回，
-  最接近原 PDF 的观感；工具栏可调底图浓度、字号、只看原文，可直接打印成 PDF
-- `out/<文件名>_双语.pdf` —— 每页原图（无损拷贝原页）+ 紧随一页译文，译文下方附浅灰原文
-- `out/<文件名>_译文.md` —— 结构化文本稿，方便二次编辑
-- `out/.cache/<文件名>/page-N.json` —— 每页的结构化结果，重跑命中缓存不重复计费
-
-## 怎么做的
-
-```
-render.py   PDF → PNG（PyMuPDF，可指定 DPI；长边默认压到 1800px 再送模型）
-vision.py   一页图 → 严格 JSON：blocks[{kind, original, translation}] + uncertain
-build.py    双语 PDF（中文字体子集嵌入，4 页文档约 600KB）+ Markdown
-```
-
-几个踩过的坑：
-
-- **不要用内嵌文本层**：扫描件的 OCR 层往往是垃圾，直接当没有处理。
-- **字体子集化**：PyMuPDF 直接 `insert_font` 会把整个中文字体嵌进去（+10MB），
-  必须 `subset_fonts()`，否则文件从 600KB 变 10MB。
-- **原页用 `insert_pdf` 拷贝**，不要重新光栅化——既无损又小。
-- **坐标有两种单位**：模型有时给 0–1 归一化值，有时给像素值，
-  所以要拿页面实际宽高来判定并换算，否则整页块都定位失败（会被丢进"未定位内容"）。
-- **表格行用 `	` 分隔**：`Font.text_length('	')` 只算 1 个字符宽、实际排版却撑开几个字宽，
-  必须先归一化成空格，否则"校验不超宽但渲染溢出、被页面右边缘裁掉"。
-- **CJK 断行要自己算**：`insert_textbox` 只按空格断行，中文会溢出，
-  所以用 `Font.text_length` 逐字测量，拉丁词回退到词首/空格处。
-- **涂黑标记**：让模型输出 `[涂黑 (b)(6)]` 而不是猜内容，避免幻觉。
+服务地址可在扩展设置页改（默认 `http://127.0.0.1:8765`）。

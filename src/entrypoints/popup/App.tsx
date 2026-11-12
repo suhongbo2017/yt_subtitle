@@ -239,7 +239,7 @@ export default function App() {
     let alive = true;
     const ping = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8765/api/config', {
+        const res = await fetch(`${settings.visionUrl.replace(/\/+$/, '')}/api/config`, {
           signal: AbortSignal.timeout(1500),
         });
         const data = (await res.json()) as {
@@ -258,7 +258,7 @@ export default function App() {
       alive = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [settings.visionUrl]);
 
   useEffect(() => {
     void settingsItem.getValue().then((saved) => {
@@ -333,7 +333,7 @@ export default function App() {
           title={
             vision.online
               ? `视觉服务在线（${vision.model ?? ''}）· 截图翻译/文档翻译用`
-              : '视觉服务未启动（:8765）· 截图翻译需要它，双击 start-ui.cmd'
+              : `视觉服务未启动（${settings.visionUrl}）· 截图翻译需要它，在 pdftranslate 项目里双击 start-server.cmd`
           }
         >
           视觉{vision.online ? '' : ' ✕'}
@@ -469,7 +469,7 @@ export default function App() {
       )}
       {!screenBusy && !screenMsg && !vision.online && (
         <p className="mb-1 text-center text-[10px] leading-relaxed text-amber-400">
-          截图翻译需要视觉服务：双击 start-ui.cmd（:8765）
+          截图翻译需要视觉服务：在 pdftranslate 项目里双击 start-server.cmd
         </p>
       )}
 

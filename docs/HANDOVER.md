@@ -11,7 +11,7 @@
 |---|---|---|
 | **浏览器扩展** `src/` | 在 YouTube 页面上叠加双语字幕；没有字幕轨的视频用本地 ASR 生成；截图翻译 | `chrome://extensions` 加载 `.output/chrome-mv3` |
 | **本地 ASR 服务** `asrsvc/` | faster-whisper 转写：分片实时识别 + 整段精修 + 按 videoId 缓存 | `python -m asrsvc.server` → `127.0.0.1:8770` |
-| **文档/截图翻译** `pdftranslate/` | 视觉大模型转写+翻译：扫描件 PDF、截图 → 双语 PDF / 覆盖式 HTML / Markdown | `python -m pdftranslate.server` → `127.0.0.1:8765` |
+| **外部依赖**：pdftranslate 项目 | 视觉大模型：文档/截图 → 双语 PDF / 覆盖式 HTML / Markdown | 独立仓库，`:8765` 提供 `/api/screen` |
 
 ### 扩展的四个功能（互相独立）
 
@@ -22,8 +22,11 @@
 | 实时识别（兜底） | ASR 服务 `:8770` | 弹窗「改用实时识别」按钮 |
 | 截图翻译 | 视觉服务 `:8765` | 弹窗「📝 截图翻译」/ 页面框选 |
 
-弹窗顶部有两个服务状态徽章：`ASR`（:8770）与 `视觉`（:8765），在线才亮；底部「运行状态」卡片
-显示当前在用哪个功能、字幕条数与已译条数、当前显示内容、错误信息。
+弹窗顶部有两个服务状态徽章：`ASR`（:8770，本项目）与 `视觉`（:8765，外部 pdftranslate 项目），
+在线才亮；底部「运行状态」卡片显示当前在用哪个功能、字幕条数与已译条数、当前显示内容、错误信息。
+
+> 跨项目依赖：**截图翻译** 调 `http://127.0.0.1:8765/api/screen`（可在设置页改 `visionUrl`）。
+> 字幕/整页翻译不依赖它。
 
 三者共享的思路：**能用现成信号就别硬造**。
 - 视频优先用 YouTube 自带字幕轨（含自动生成），没有才上 ASR
@@ -53,8 +56,8 @@ python -m venv .venv
 .venv\Scripts\python.exe -m asrsvc.server        # 或双击 start-asr.cmd
 ```
 
-**文档翻译**：双击 `start-ui.cmd`，或 `.venv\Scripts\python.exe -m pdftranslate.server`，
-浏览器打开 <http://127.0.0.1:8765/>，拖 PDF 进去即可。
+**文档/截图翻译**：在独立项目 `D:\PI\pdftranslate` 里双击 `start-server.cmd`
+（浏览器打开 <http://127.0.0.1:8765/>）。本项目不含这部分代码。
 
 ---
 
@@ -76,16 +79,7 @@ subtitle/
 │  │  ├─ overlay.ts             # Shadow DOM 双语层
 │  │  ├─ translate.ts           # Google(clients5 批量) / OpenAI 兼容
 │  │  ├─ settings.ts types.ts
-├─ pdftranslate/                # 文档翻译
-│  ├─ render.py                 # PDF → PNG（按页懒加载）
-│  ├─ vision.py                 # 视觉模型调用 + JSON 解析 + bbox 归一化
-│  ├─ snap.py                   # 用 PDF 文本层逐行校准坐标
-│  ├─ build.py                  # 双语 PDF（含真表格）+ Markdown
-│  ├─ build_html.py             # 覆盖式 HTML（含真表格、顺排降级）
-│  ├─ pipeline.py               # CLI 与 Web UI 共用的流水线
-│  ├─ server.py ui.html         # 本地操作界面（:8765）
-│  ├─ models.py config.py       # 模型注册表（models.json）/ 配置
-│  ├─ screen.py                 # 截图翻译（截图专用提示词）
+（文档/截图翻译已拆分到独立仓库 D:\PI\pdftranslate，本仓库不再包含）
 ├─ asrsvc/                      # 本地语音识别
 │  ├─ server.py                 # HTTP 接口 + 模型管理
 │  └─ vod.py                    # 点播字幕：yt-dlp 下音频 → 整段转写 → 缓存
@@ -227,7 +221,6 @@ cp .env.example .env          # 填 VISION_API_KEY（qwen/gemini/...）
 | `install-autostart.cmd` / `uninstall-autostart.cmd` | 开机自启（备选，会一直跑） |
 | `start-asr.cmd` | 前台跑 ASR（调试看日志） |
 | `stop-asr.cmd` | 按端口杀 ASR 进程 |
-| `start-ui.cmd` | 起文档翻译界面并打开浏览器 |
 
 > `.cmd` 里的内容必须是 **ASCII**：中文在 GBK 控制台下会被解析成乱码命令。
 
