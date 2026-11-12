@@ -75,6 +75,7 @@ type IncomingMessage =
   | { type: 'ytsub:service'; cmd: 'start' | 'stop' | 'status' }
   | { type: 'ytsub:screen'; region?: { x: number; y: number; w: number; h: number; dpr: number } }
   | { type: 'ytsub:page-translate'; toggle?: boolean }
+  | { type: 'ytsub:pdf-service'; cmd?: 'status' | 'start' }
   | { type: 'ytsub:cache-stats' }
   | { type: 'ytsub:cache-clear'; what: 'trcache' | 'all' };
 
@@ -500,6 +501,24 @@ export default defineBackground(() => {
       } catch (err) {
         sendResponse({ ok: false, error: String(err) });
       }
+      return true;
+    }
+
+    if (msg?.type === 'ytsub:pdf-service') {
+      // PDF 翻译是独立项目，这里只通过 Native 启动器拉它的服务
+      const cmd = (msg as { cmd?: string }).cmd === 'start' ? 'pdf-start' : 'pdf-status';
+      void browser.runtime
+        .sendNativeMessage('com.pi.ytasr', { cmd })
+        .then((res) => sendResponse({ ok: true, result: res }))
+        .catch((err: unknown) => {
+          const text = err instanceof Error ? err.message : String(err);
+          sendResponse({
+            ok: false,
+            error: /not found|forbidden/i.test(text)
+              ? '未安装启动器：请双击 install-native-host.cmd'
+              : text,
+          });
+        });
       return true;
     }
 

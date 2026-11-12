@@ -23,9 +23,14 @@ def _project_root() -> Path:
 
 
 ROOT = _project_root()
+# PDF 翻译是独立项目，这里只负责把它的服务拉起来
+PDF_PROJECT = ROOT.parent / 'pdf_trasllama'
+PDF_PROJECT_ALT = ROOT.parent / 'pdftranslate'
+PDF_PORT = 8765
 PYTHONW = ROOT / '.venv' / 'Scripts' / 'pythonw.exe'
 PORT = 8770
 HOST = '127.0.0.1'
+CRLF = chr(13) + chr(10)
 
 
 def log(msg: str) -> None:
@@ -130,6 +135,78 @@ def stop_service() -> dict:
     return {'ok': healthy() is None, 'stopped': sorted(pids)}
 
 
+def _pdf_project() -> Path | None:
+    for cand in (PDF_PROJECT, PDF_PROJECT_ALT):
+        if (cand / 'pdftranslate' / 'server.py').exists():
+            return cand
+    return None
+
+
+def _http_json(port: int, path: str, timeout: float = 1.5):
+    try:
+        with socket.create_connection((HOST, port), timeout=timeout) as s:
+            req = f'GET {path} HTTP/1.0' + CRLF + f'Host: {HOST}' + CRLF + 'Connection: close' + CRLF + CRLF
+            s.sendall(req.encode())
+            chunks = []
+            while True:
+                buf = s.recv(4096)
+                if not buf:
+                    break
+                chunks.append(buf)
+        sep = (CRLF + CRLF).encode()
+        body = b''.join(chunks).split(sep, 1)[-1]
+        return json.loads(body.decode('utf-8', 'ignore'))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def pdf_status() -> dict:
+    info = _http_json(PDF_PORT, '/api/config')
+    project = _pdf_project()
+    return {
+        'ok': True,
+        'online': info is not None,
+        'project': str(project) if project else '',
+        'installed': project is not None,
+        'port': PDF_PORT,
+    }
+
+
+def pdf_start(wait: float = 40.0) -> dict:
+    if _http_json(PDF_PORT, '/api/config'):
+        return {**pdf_status(), 'already': True}
+    project = _pdf_project()
+    if project is None:
+        return {
+            'ok': False,
+            'error': '找不到 PDF 翻译项目（期望目录 pdf_trasllama 或 pdftranslate，且含 pdftranslate/server.py）',
+        }
+    pyw = project / '.venv' / 'Scripts' / 'pythonw.exe'
+    if not pyw.exists():
+        return {'ok': False, 'error': f'找不到 {pyw}，请先在该项目里创建 .venv 并安装依赖'}
+
+    creationflags = 0
+    if os.name == 'nt':
+        creationflags = 0x00000008 | 0x00000200
+    subprocess.Popen(
+        [str(pyw), '-m', 'pdftranslate.server', '--port', str(PDF_PORT)],
+        cwd=str(project),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+        close_fds=True,
+    )
+    log(f'已启动 PDF 翻译服务（{project}）')
+
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        time.sleep(0.7)
+        if _http_json(PDF_PORT, '/api/config'):
+            return {**pdf_status(), 'already': False}
+    return {'ok': False, 'error': 'PDF 服务启动超时（检查该项目的 .env 是否配好 Key）'}
+
+
 def main() -> None:
     msg = read_message()
     if msg is None:
@@ -141,6 +218,10 @@ def main() -> None:
         result = start_service()
     elif cmd == 'stop':
         result = stop_service()
+    elif cmd == 'pdf-status':
+        result = pdf_status()
+    elif cmd == 'pdf-start':
+        result = pdf_start()
     else:
         info = healthy()
         result = (

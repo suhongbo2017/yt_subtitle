@@ -98,6 +98,44 @@ export default function App() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [asr, setAsr] = useState<Svc>({ online: false });
   const [vision, setVision] = useState<Svc>({ online: false });
+  const [pdf, setPdf] = useState<{ online: boolean; installed: boolean; project: string }>({
+    online: false,
+    installed: false,
+    project: '',
+  });
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  const refreshPdf = useCallback(async () => {
+    const res = (await browser.runtime.sendMessage({ type: 'ytsub:pdf-service', cmd: 'status' })) as
+      | { ok: boolean; result?: { online?: boolean; installed?: boolean; project?: string }; error?: string }
+      | undefined;
+    if (res?.ok && res.result) {
+      setPdf({
+        online: !!res.result.online,
+        installed: !!res.result.installed,
+        project: res.result.project ?? '',
+      });
+    } else {
+      setPdf({ online: false, installed: false, project: '' });
+    }
+  }, []);
+
+  const startPdfService = async () => {
+    setPdfBusy(true);
+    try {
+      const res = (await browser.runtime.sendMessage({ type: 'ytsub:pdf-service', cmd: 'start' })) as
+        | { ok: boolean; result?: { ok?: boolean; error?: string }; error?: string }
+        | undefined;
+      if (!res?.ok) throw new Error(res?.error ?? '启动失败');
+      if (res.result && res.result.ok === false) throw new Error(res.result.error ?? '启动失败');
+      await refreshPdf();
+      flash('PDF 翻译服务已启动');
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -117,7 +155,8 @@ export default function App() {
   useEffect(() => {
     void settingsItem.getValue().then((s) => setSettings({ ...DEFAULT_SETTINGS, ...(s ?? {}) }));
     void loadStats();
-  }, [loadStats]);
+    void refreshPdf();
+  }, [loadStats, refreshPdf]);
 
   // 两个服务的在线探测
   useEffect(() => {
@@ -178,13 +217,14 @@ export default function App() {
     <div className="mx-auto max-w-4xl space-y-8 px-6 py-10">
       <header className="flex flex-wrap items-center gap-3">
         <div className="flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">使用说明 · 控制台</h1>
+          <h1 className="text-xl font-semibold tracking-tight">使用说明</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            YouTube 双语字幕 · 整页翻译 · 语音识别 · 截图翻译
+            插件负责：YouTube 字幕 · 整页翻译 · 语音识别 · 截图翻译　|　PDF 翻译是独立页面
           </p>
         </div>
         <Badge ok={asr.online}>ASR {asr.online ? asr.detail ?? '' : '离线'}</Badge>
         <Badge ok={vision.online}>视觉 {vision.online ? vision.detail ?? '' : '离线'}</Badge>
+        <Badge ok={pdf.online}>PDF {pdf.online ? '在线' : '离线'}</Badge>
         <button
           type="button"
           onClick={() => void browser.runtime.openOptionsPage()}
@@ -242,15 +282,48 @@ export default function App() {
             action={() => flash(`在 pdf_trasllama 目录双击 start-server.cmd（${settings.visionUrl}）`)}
             actionText="怎么启动视觉服务"
           />
-          <Card
-            title="文档翻译"
-            desc="扫描件/图片 PDF → 双语 PDF / 覆盖式 HTML / Markdown。在视觉服务的网页界面里操作。"
-            ready={vision.online}
-            readyText="服务在线"
-            needText="需启动视觉服务"
-            action={() => void browser.tabs.create({ url: settings.visionUrl })}
-            actionText="打开文档翻译界面"
-          />
+          <div className="flex flex-col gap-2 rounded-xl border border-violet-900/40 bg-violet-950/20 p-4 sm:col-span-2">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-100">PDF / 文档翻译</h3>
+                <p className="mt-0.5 text-[10px] text-violet-300/70">独立页面 · 不在插件里</p>
+              </div>
+              <Badge ok={pdf.online}>{pdf.online ? '服务在线' : pdf.installed ? '未启动' : '未安装'}</Badge>
+            </div>
+            <p className="text-[11px] leading-relaxed text-neutral-500">
+              扫描件、图片型 PDF → 双语 PDF / 覆盖式 HTML / Markdown。这是**单独的一个网页应用**，
+              插件只负责帮你把它拉起来并打开。
+              {pdf.installed && (
+                <>
+                  <br />
+                  <span className="text-neutral-600">位置：{pdf.project}</span>
+                </>
+              )}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={pdfBusy || !pdf.installed}
+                onClick={() => void startPdfService()}
+                className="rounded-lg bg-violet-700/70 px-3 py-1.5 text-[11px] font-medium text-white transition hover:bg-violet-600 disabled:opacity-40"
+              >
+                {pdfBusy ? '启动中…' : pdf.online ? '重新检查' : '启动 PDF 服务'}
+              </button>
+              <button
+                type="button"
+                disabled={!pdf.online}
+                onClick={() => void browser.tabs.create({ url: settings.visionUrl })}
+                className="rounded-lg bg-neutral-800 px-3 py-1.5 text-[11px] font-medium text-neutral-200 transition hover:bg-neutral-700 disabled:opacity-40"
+              >
+                打开 PDF 翻译页面
+              </button>
+              {!pdf.installed && (
+                <span className="self-center text-[10px] text-amber-400">
+                  没找到项目目录（期望 pdf_trasllama）
+                </span>
+              )}
+            </div>
+          </div>
           <Card
             title="翻译引擎"
             desc={
@@ -276,8 +349,8 @@ export default function App() {
             <b className="text-neutral-200">2. 看网页</b> —— 点扩展图标 → 「🌐 翻译此页面」。恢复原文点页面右下角按钮。
           </li>
           <li>
-            <b className="text-neutral-200">3. 看截图/文档</b> —— 截图翻译用弹窗里的「📝 截图翻译」框选；
-            文档翻译去视觉服务的网页界面拖 PDF。
+            <b className="text-neutral-200">3. 看截图</b> —— 弹窗里「📝 截图翻译」框选区域。
+            <b className="text-neutral-200">看 PDF</b> —— 本页下方「PDF / 文档翻译」一张卡片，启动并打开独立页面。
           </li>
           <li>
             <b className="text-neutral-200">4. 出问题</b> —— 弹窗底部「运行状态」会写清楚在跑哪个功能、错误是什么；
