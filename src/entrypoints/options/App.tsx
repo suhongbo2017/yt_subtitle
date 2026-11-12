@@ -125,6 +125,13 @@ export default function App() {
           </span>
           <button
             type="button"
+            onClick={() => void browser.tabs.create({ url: '/guide.html' })}
+            className="rounded-lg border border-neutral-800 px-2.5 py-1 text-[11px] text-neutral-400 hover:text-neutral-100"
+          >
+            使用说明
+          </button>
+          <button
+            type="button"
             onClick={exportSettings}
             className="rounded-lg border border-neutral-800 px-2.5 py-1 text-[11px] text-neutral-400 hover:text-neutral-100"
           >

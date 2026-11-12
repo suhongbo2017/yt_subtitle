@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
-import { loadSettings } from '@/lib/settings';
+import { cacheItem, loadSettings } from '@/lib/settings';
 import { translateLines } from '@/lib/translate';
 import type { Settings } from '@/lib/types';
 
@@ -74,7 +74,9 @@ type IncomingMessage =
   | { type: 'ytsub:subs-poll'; jobId?: string }
   | { type: 'ytsub:service'; cmd: 'start' | 'stop' | 'status' }
   | { type: 'ytsub:screen'; region?: { x: number; y: number; w: number; h: number; dpr: number } }
-  | { type: 'ytsub:page-translate'; toggle?: boolean };
+  | { type: 'ytsub:page-translate'; toggle?: boolean }
+  | { type: 'ytsub:cache-stats' }
+  | { type: 'ytsub:cache-clear'; what: 'trcache' | 'all' };
 
 /**
  * 注入页面里的选框 UI：拖拽划出矩形，Esc 取消，返回设备像素坐标。
@@ -397,6 +399,8 @@ async function handleChunk(msg: AsrChunkMessage): Promise<void> {
 }
 
 export default defineBackground(() => {
+  // 构建标记：排查"改了代码但跑的是旧 SW"时用
+  console.log('[ytsub] background 已加载', new Date().toISOString().slice(0, 19));
   browser.tabs.onRemoved.addListener((tabId) => {
     if (asrSessions.has(tabId)) void asrStop(tabId);
   });
@@ -496,6 +500,38 @@ export default defineBackground(() => {
       } catch (err) {
         sendResponse({ ok: false, error: String(err) });
       }
+      return true;
+    }
+
+    if (msg?.type === 'ytsub:cache-stats') {
+      void (async () => {
+        const [trcache, settings] = await Promise.all([
+          cacheItem.getValue(),
+          loadSettings(),
+        ]);
+        const entries = Object.keys(trcache ?? {});
+        const bytes = new Blob([JSON.stringify(trcache ?? {})]).size;
+        sendResponse({
+          ok: true,
+          stats: {
+            trCacheEntries: entries.length,
+            trCacheBytes: bytes,
+            provider: settings.provider,
+            targetLang: settings.targetLang,
+            visionUrl: settings.visionUrl,
+            asrUrl: settings.asrUrl,
+          },
+        });
+      })().catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+      return true;
+    }
+
+    if (msg?.type === 'ytsub:cache-clear') {
+      void (async () => {
+        const what = (msg as { what?: string }).what;
+        if (what === 'trcache' || what === 'all') await cacheItem.setValue({});
+        sendResponse({ ok: true });
+      })().catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
       return true;
     }
 
