@@ -41,7 +41,7 @@
 | 服务 | 端口 | 管什么 | 怎么启动 |
 |---|---|---|---|
 | ASR 服务 | 8770 | 语音识别（无字幕视频） | 双击 `install-native-host.cmd`（一次性）后，在弹窗里开关 |
-| 视觉服务 | 8765 | 截图翻译（文档翻译也在它里面） | 在 **pdftranslate 项目**里双击 `start-server.cmd` |
+| 视觉服务 | 8765 | 截图翻译（文档翻译也在它里面） | 在 [`pdf_trasllama`](https://github.com/suhongbo2017/pdf_trasllama) 里双击 `start-server.cmd` |
 
 - **只想看字幕** → 什么都不用启动，扩展直接用 YouTube 自带字幕
 - **想用语音识别** → 先 `install-native-host.cmd`（一次性，装完弹窗里就能启停服务）
@@ -200,7 +200,7 @@ start-asr.cmd --model small
 
 ## 6. 文档翻译（扫描版 PDF / 图片）
 
-**已拆分到独立项目** `D:\PI\pdftranslate`（有自己的 README、环境和 git 仓库）。
+**已拆分到独立项目** [`pdf_trasllama`](https://github.com/suhongbo2017/pdf_trasllama)（有自己的 README、环境和 git 仓库）。
 
 用法不变：在那边双击 `start-server.cmd` → 浏览器打开 `http://127.0.0.1:8765/` → 拖 PDF 进左侧。
 

@@ -283,7 +283,7 @@ python scripts/import-cookies.py cookie/ytb.txt cookies.txt
 
 ## 相关项目
 
-**扫描件 / PDF / 截图翻译** 已拆分到独立项目 [`pdftranslate`](../pdftranslate)：
+**扫描件 / PDF / 截图翻译** 已拆分到独立项目 [`pdf_trasllama`](https://github.com/suhongbo2017/pdf_trasllama)：
 
 - 视觉大模型转写+翻译（不做传统 OCR）
 - 输出双语 PDF / 覆盖式 HTML / Markdown

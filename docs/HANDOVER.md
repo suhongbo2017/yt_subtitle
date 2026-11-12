@@ -79,7 +79,7 @@ subtitle/
 │  │  ├─ overlay.ts             # Shadow DOM 双语层
 │  │  ├─ translate.ts           # Google(clients5 批量) / OpenAI 兼容
 │  │  ├─ settings.ts types.ts
-（文档/截图翻译已拆分到独立仓库 D:\PI\pdftranslate，本仓库不再包含）
+（文档/截图翻译已拆分到独立仓库 [https://github.com/suhongbo2017/pdf_trasllama](https://github.com/suhongbo2017/pdf_trasllama)，本仓库不再包含）
 ├─ asrsvc/                      # 本地语音识别
 │  ├─ server.py                 # HTTP 接口 + 模型管理
 │  └─ vod.py                    # 点播字幕：yt-dlp 下音频 → 整段转写 → 缓存
@@ -428,3 +428,5 @@ python -m venv .venv && .venv\Scripts\python.exe -m pip install -r requirements.
 | 前端栈 | WXT 0.21 + React 19 + Tailwind 4 + TypeScript 5.9 |
 | 关键依赖 | faster-whisper 1.2 / PyMuPDF 2.1 / Pillow |
 | 代理 | `127.0.0.1:7897`（访问 Gemini / HF / YouTube 时需要） |
+
+- 文档/截图翻译：https://github.com/suhongbo2017/pdf_trasllama
